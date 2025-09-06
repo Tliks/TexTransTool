@@ -30,7 +30,6 @@ namespace net.rs64.TexTransTool.NDMF
 
 
             InPhase(BuildPhase.Transforming)
-            .BeforePlugin("io.github.azukimochi.light-limit-changer")
             .BeforePlugin("net.narazaka.vrchat.floor_adjuster")
             .BeforePlugin("MantisLODEditor.ndmf")
             .AfterPlugin("nadena.dev.modular-avatar")
