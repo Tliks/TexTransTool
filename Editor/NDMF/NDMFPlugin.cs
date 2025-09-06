@@ -33,6 +33,7 @@ namespace net.rs64.TexTransTool.NDMF
             .BeforePlugin("io.github.azukimochi.light-limit-changer")
             .BeforePlugin("net.narazaka.vrchat.floor_adjuster")
             .BeforePlugin("MantisLODEditor.ndmf")
+            .AfterPlugin("nadena.dev.modular-avatar")
             .WithRequiredExtensions(new Type[] {typeof(AnimatorServicesContext)}, sequence =>
             {
                 sequence
