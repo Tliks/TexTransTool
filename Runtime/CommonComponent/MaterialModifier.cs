@@ -30,7 +30,7 @@ namespace net.rs64.TexTransTool
 
             if (TargetMaterial == null) { TTLog.Info("MaterialModifier:info:TargetNotSet", this); return; }
 
-            var mats = GetTargetMaterials(domain, TargetMaterial);
+            var mats = GetTargetMaterials(domain);
             if (mats.Count == 0) { TTLog.Info("MaterialModifier:info:TargetNotFound", this); return; }
 
             foreach (var mat in mats)
@@ -120,14 +120,34 @@ namespace net.rs64.TexTransTool
             }
         }
 
-        private static HashSet<Material> GetTargetMaterials(IDomainReferenceViewer rendererTargeting, Material? target)
-        { return rendererTargeting.GetDomainsMaterialsHashSet(target); }
+        private HashSet<Material> GetOriginalMaterialsHashSet(IDomainReferenceViewer referenceViewer)
+        {
+            var originalMaterials = new HashSet<Material>();
+
+            var targetMaterial = referenceViewer.ObserveToGet(this, i => i.TargetMaterial);
+            if (targetMaterial != null)
+            {
+                originalMaterials.Add(targetMaterial);
+            }
+            
+            referenceViewer.ObserveToGetComponent<MaterialModifierAdditionalTarget>(gameObject);
+            if (gameObject.TryGetComponent<MaterialModifierAdditionalTarget>(out var additionalTarget))
+            {
+                originalMaterials.UnionWith(additionalTarget.GetAdditionalTargets(referenceViewer));
+            }
+
+            return originalMaterials;
+        }
+
+        private HashSet<Material> GetTargetMaterials(IDomainReferenceViewer rendererTargeting)
+        { return rendererTargeting.GetDomainsMaterialsHashSet(GetOriginalMaterialsHashSet(rendererTargeting)); }
+
         internal override IEnumerable<Renderer> TargetRenderers(IDomainReferenceViewer rendererTargeting)
-        { return rendererTargeting.RendererFilterForMaterial(rendererTargeting.ObserveToGet(this, i => i.TargetMaterial)); }
+        { return rendererTargeting.RendererFilterForMaterial(GetOriginalMaterialsHashSet(rendererTargeting)); }
 
         void IDomainReferenceModifier.RegisterDomainReference(IDomainReferenceViewer domainReferenceViewer, IDomainReferenceRegistry registry)
         {
-            var mats = GetTargetMaterials(domainReferenceViewer, domainReferenceViewer.ObserveToGet(this, mm => mm.TargetMaterial));
+            var mats = GetTargetMaterials(domainReferenceViewer);
             var addTextures = domainReferenceViewer.ObserveToGet(this,
                     c => c.OverrideProperties
                         .Where(op => op.PropertyType is UnityEngine.Rendering.ShaderPropertyType.Texture)
