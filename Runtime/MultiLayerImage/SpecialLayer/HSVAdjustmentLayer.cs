@@ -8,6 +8,7 @@ namespace net.rs64.TexTransTool.MultiLayerImage
     [AddComponentMenu(TexTransBehavior.TTTName + "/" + MenuPath)]
     public class HSVAdjustmentLayer : AbstractLayer
     {
+        
         internal const string ComponentName = "TTT HSVAdjustmentLayer";
         internal const string MenuPath = MultiLayerImageCanvas.FoldoutName + "/" + ComponentName;
         [Range(-1, 1)] public float Hue;
