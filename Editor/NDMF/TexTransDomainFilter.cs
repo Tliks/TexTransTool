@@ -19,17 +19,11 @@ namespace net.rs64.TexTransTool.NDMF
     {
         public readonly TexTransPhase PreviewTargetPhase;
         public readonly int PhaseIndex;
-        private readonly PropCache<GameObject, ImmutableList<RenderGroup>> _groupsByRootCache;
 
         public TexTransDomainFilter(TexTransPhase previewTargetPhase)
         {
             PreviewTargetPhase = previewTargetPhase;
             PhaseIndex = Array.IndexOf(TexTransPhaseUtility.TexTransPhases, PreviewTargetPhase);
-            _groupsByRootCache = new(
-                nameof(TexTransDomainFilter) + "/" + nameof(BuildGroupsForRoot),
-                BuildGroupsForRoot,
-                static (left, right) => left.SequenceEqual(right)
-            );
         }
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
@@ -49,23 +43,12 @@ namespace net.rs64.TexTransTool.NDMF
             var avatarRoots = ctx.GetAvatarRoots();
             Profiler.EndSample();
             var allGroups = new List<RenderGroup>();
+            var waker = new NDMFGameObjectObservedWaker(ctx);
 
             foreach (var root in avatarRoots)
             {
-                allGroups.AddRange(_groupsByRootCache.Get(ctx, root));
-            }
-
-            Profiler.EndSample();
-            return allGroups.ToImmutableList();
-        }
-
-        private ImmutableList<RenderGroup> BuildGroupsForRoot(ComputeContext ctx, GameObject root)
-        {
-                var groups = new List<RenderGroup>();
-                var waker = new NDMFGameObjectObservedWaker(ctx);
-
                 //ルートから無効化されている場合そもそもプレビューする意味がないので完全スキップ
-                if (ctx.ActiveInHierarchy(root) is false) { return ImmutableList<RenderGroup>.Empty; }
+                if (ctx.ActiveInHierarchy(root) is false) { continue; }
 
                 Profiler.BeginSample(root.name, root);
                 Profiler.BeginSample("FindAtPhase");
@@ -127,41 +110,30 @@ namespace net.rs64.TexTransTool.NDMF
                 Profiler.EndSample();
 
                 Profiler.BeginSample("add to all groups");
-                groups.AddRange(renderersGroup2behavior
-                    .Select(i => RenderGroup.For(i.Key).WithData(new PassingData(i.Value.OrderBy(behaviorIndex.GetValueOrDefault).ToImmutableArray())))
-                    .OrderBy(g => g.Renderers[0].GetInstanceID()));
+                allGroups.AddRange(renderersGroup2behavior.Select(i => RenderGroup.For(i.Key).WithData(new PassingData(i.Value, domainRenderers, behaviorIndex))));
                 Profiler.EndSample();
                 Profiler.EndSample();
 
                 Profiler.EndSample();
-                return groups.ToImmutableList();
+            }
+
+            Profiler.EndSample();
+            return allGroups.ToImmutableList();
         }
         class PassingData
         {
-            public ImmutableArray<TexTransBehavior> OrderedBehaviors { get; }
+            public HashSet<TexTransBehavior> Behaviors;
+            public Renderer[] DomainRenderers;
+            public Dictionary<TexTransBehavior, int> BehaviorIndex;
 
-            public PassingData(ImmutableArray<TexTransBehavior> orderedBehaviors)
+            public PassingData(HashSet<TexTransBehavior> value, Renderer[] domainRenderers, Dictionary<TexTransBehavior, int> behaviorIndex)
             {
-                OrderedBehaviors = orderedBehaviors;
-            }
-
-            public override bool Equals(object obj)
-            {
-                return ReferenceEquals(this, obj) || obj is PassingData other && OrderedBehaviors.SequenceEqual(other.OrderedBehaviors);
-            }
-
-            public override int GetHashCode()
-            {
-                var hash = 0;
-                foreach (var behavior in OrderedBehaviors)
-                {
-                    hash = HashCode.Combine(hash, behavior);
-                }
-
-                return hash;
+                Behaviors = value;
+                DomainRenderers = domainRenderers;
+                BehaviorIndex = behaviorIndex;
             }
         }
-        private Dictionary<TexTransBehavior, int> GetFlattenBehaviorAndIndex(IEnumerable<TexTransBehavior> behaviors)
+        private Dictionary<TexTransBehavior, int> GetFlattenBehaviorAndIndex(List<TexTransBehavior> behaviors)
         {
             var behaviorIndex = new Dictionary<TexTransBehavior, int>();
 
@@ -179,11 +151,11 @@ namespace net.rs64.TexTransTool.NDMF
         {
             var renderer2Behavior = new Dictionary<Renderer, HashSet<TexTransBehavior>>();
 
-            foreach (var targetKV in targetRendererGroup.OrderBy(i => i.Key.GetInstanceID()))
+            foreach (var targetKV in targetRendererGroup)
             {
                 var thisTTGroup = new HashSet<TexTransBehavior>() { { targetKV.Key } };
                 var thisGroupTarget = new HashSet<Renderer>();
-                foreach (var target in targetKV.Value.OrderBy(i => i.GetInstanceID()))
+                foreach (var target in targetKV.Value)
                 {
                     if (renderer2Behavior.ContainsKey(target))
                     {
@@ -198,7 +170,7 @@ namespace net.rs64.TexTransTool.NDMF
             }
 
             var grouping = new Dictionary<IEnumerable<Renderer>, HashSet<TexTransBehavior>>();
-            foreach (var group in renderer2Behavior.OrderBy(i => i.Key.GetInstanceID()).Select(i => i.Value).Distinct()) { grouping.Add(renderer2Behavior.Where(i => i.Value == group).Select(i => i.Key), group); }
+            foreach (var group in renderer2Behavior.Values.Distinct()) { grouping.Add(renderer2Behavior.Where(i => i.Value == group).Select(i => i.Key), group); }
             return grouping;
         }
 
@@ -230,12 +202,14 @@ namespace net.rs64.TexTransTool.NDMF
             var node = new TexTransPhaseNode();
             node.TargetPhase = PreviewTargetPhase;
             node.o2pDict = o2pDict;
+            node.domainRenderers = o2pDict.Values.ToArray();
+            node.behaviorIndex = data.BehaviorIndex;
 #if TTT_DISPLAY_RUNTIME_LOG
             var timer = System.Diagnostics.Stopwatch.StartNew();
 #endif
 
             Profiler.BeginSample("node.NodeExecuteAndInit");
-            node.NodeExecuteAndInit(data.OrderedBehaviors, context);
+            node.NodeExecuteAndInit(data.Behaviors, context);
             Profiler.EndSample();
 
 #if TTT_DISPLAY_RUNTIME_LOG
