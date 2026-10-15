@@ -14,6 +14,7 @@ namespace net.rs64.TexTransTool.Editor.MultiLayerImage
     internal class AbstractLayerEditor : TexTransMonoBaseEditor
     {
         (NotWorkDomain domain, UnityDiskUtil diskUtil, ITTRenderTexture previewRt)? _imageLayerPreviewResult = null;
+        readonly MultiLayerImagePreviewHover _previewHover = new();
         private bool _needUpdate;
 
         void OnEnable() { _needUpdate = true; GenerateImageLayerPreview(); }
@@ -62,6 +63,7 @@ namespace net.rs64.TexTransTool.Editor.MultiLayerImage
         }
         void OnDisable()
         {
+            _previewHover.Dispose();
             if (_imageLayerPreviewResult == null) { return; }
             _imageLayerPreviewResult.Value.previewRt.Dispose();
             _imageLayerPreviewResult.Value.domain.Dispose();
@@ -112,6 +114,8 @@ namespace net.rs64.TexTransTool.Editor.MultiLayerImage
             {
                 var previewUrt = _imageLayerPreviewResult.Value.domain.GetTexTransCoreEngineForUnity().GetReferenceRenderTexture(_imageLayerPreviewResult.Value.previewRt);
                 EditorGUI.DrawTextureTransparent(previewArea, previewUrt, ScaleMode.ScaleToFit);
+                var layer = target as AbstractLayer;
+                _previewHover.Update(previewArea, previewUrt, layer != null ? layer.GetComponentInParent<MultiLayerImageCanvas>() : null);
             }
         }
 
