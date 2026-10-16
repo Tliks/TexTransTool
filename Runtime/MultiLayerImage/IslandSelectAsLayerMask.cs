@@ -42,7 +42,7 @@ namespace net.rs64.TexTransTool.MultiLayerImage
 
             var meshData = decalRenderTarget
                 .Where(r => r is SkinnedMeshRenderer or MeshRenderer)
-                .Where(r => r.GetMesh() != null)
+                .Where(r => domain.GetMesh(r) != null)
                 .Select(r => ctx.Domain.GetMeshData(r))
                 .ToArray();
 

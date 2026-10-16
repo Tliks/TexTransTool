@@ -68,7 +68,7 @@ namespace net.rs64.TexTransTool.Decal
         )
         where KeyTexture : Texture
         {
-            targetRenderers = targetRenderers.Where(i => i is SkinnedMeshRenderer or MeshRenderer).Where(i => i.GetMesh() != null).ToArray();
+            targetRenderers = targetRenderers.Where(i => i is SkinnedMeshRenderer or MeshRenderer).Where(i => targeting.GetMesh(i) != null).ToArray();
             if (targetRenderers.Any() is false) { return null; }
 
             Profiler.BeginSample("GetMeshData and converting and more");
@@ -128,7 +128,7 @@ namespace net.rs64.TexTransTool.Decal
             , ITTRenderTexture sourceTexture
             )
         {
-            targetRenderers = targetRenderers.Where(i => i is SkinnedMeshRenderer or MeshRenderer).Where(i => i.GetMesh() != null).ToArray();
+            targetRenderers = targetRenderers.Where(i => i is SkinnedMeshRenderer or MeshRenderer).Where(i => targeting.GetMesh(i) != null).ToArray();
             if (targetRenderers.Any() is false) { return false; }
 
             using var writeTarget = TTRenderTexWithPaddingDistance.CreateFrom(_ttce4u, decalWriteTarget, DecalPadding);

@@ -40,6 +40,8 @@ namespace net.rs64.TexTransTool.TextureAtlas
                 if (validRenderers.Any() is false) { throw new InvalidProgramException($"{normalizedMesh.name} が 何らかの問題により、メッシュのノーマライズに失敗しているか、不正な状態に突入している可能性があります！"); }
                 var maxSlot = validRenderers.Max(r => targeting.GetMaterials(r).Length);//ノーマライズされた場合 subMeshCount が一番 slot の多いやつになるので、 slot が多いやつを持ってくる。
                 var renderer = validRenderers.First(r => targeting.GetMaterials(r).Length == maxSlot);
+                // 以下はDomainのMeshData取得を通さず、姿勢とワールド座標を直接読み取る。
+                targeting.Observe(renderer);
 
                 var bakedMesh = normalizedMesh;
                 var needDestroy = false;
