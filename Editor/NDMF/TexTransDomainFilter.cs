@@ -110,7 +110,8 @@ namespace net.rs64.TexTransTool.NDMF
                 Profiler.EndSample();
 
                 Profiler.BeginSample("add to all groups");
-                allGroups.AddRange(renderersGroup2behavior.Select(i => RenderGroup.For(i.Key).WithData(new PassingData(i.Value, domainRenderers, behaviorIndex))));
+                allGroups.AddRange(renderersGroup2behavior
+                    .Select(i => CreateRenderGroup(i.Key, i.Value, behaviorIndex)));
                 Profiler.EndSample();
                 Profiler.EndSample();
 
@@ -120,20 +121,43 @@ namespace net.rs64.TexTransTool.NDMF
             Profiler.EndSample();
             return allGroups.ToImmutableList();
         }
-        class PassingData
+        private RenderGroup CreateRenderGroup(IEnumerable<Renderer> renderers, HashSet<TexTransBehavior> behaviors, Dictionary<TexTransBehavior, int> behaviorIndex)
         {
-            public HashSet<TexTransBehavior> Behaviors;
-            public Renderer[] DomainRenderers;
-            public Dictionary<TexTransBehavior, int> BehaviorIndex;
+            var orderedBehaviors = behaviors.OrderBy(behaviorIndex.GetValueOrDefault).ToImmutableArray();
+            return RenderGroup.For(renderers).WithData(new PassingData(orderedBehaviors), EqualityComparer<PassingData>.Default);
+        }
 
-            public PassingData(HashSet<TexTransBehavior> value, Renderer[] domainRenderers, Dictionary<TexTransBehavior, int> behaviorIndex)
+        class PassingData : IEquatable<PassingData>
+        {
+            public ImmutableArray<TexTransBehavior> OrderedBehaviors { get; }
+
+            public PassingData(ImmutableArray<TexTransBehavior> orderedBehaviors)
             {
-                Behaviors = value;
-                DomainRenderers = domainRenderers;
-                BehaviorIndex = behaviorIndex;
+                OrderedBehaviors = orderedBehaviors;
+            }
+
+            public bool Equals(PassingData other)
+            {
+                return OrderedBehaviors.SequenceEqual(other.OrderedBehaviors);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return ReferenceEquals(this, obj) || obj is PassingData other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                var hash = 0;
+                foreach (var behavior in OrderedBehaviors)
+                {
+                    hash = HashCode.Combine(hash, behavior);
+                }
+
+                return hash;
             }
         }
-        private Dictionary<TexTransBehavior, int> GetFlattenBehaviorAndIndex(List<TexTransBehavior> behaviors)
+        private Dictionary<TexTransBehavior, int> GetFlattenBehaviorAndIndex(IEnumerable<TexTransBehavior> behaviors)
         {
             var behaviorIndex = new Dictionary<TexTransBehavior, int>();
 
@@ -202,14 +226,12 @@ namespace net.rs64.TexTransTool.NDMF
             var node = new TexTransPhaseNode();
             node.TargetPhase = PreviewTargetPhase;
             node.o2pDict = o2pDict;
-            node.domainRenderers = o2pDict.Values.ToArray();
-            node.behaviorIndex = data.BehaviorIndex;
 #if TTT_DISPLAY_RUNTIME_LOG
             var timer = System.Diagnostics.Stopwatch.StartNew();
 #endif
 
             Profiler.BeginSample("node.NodeExecuteAndInit");
-            node.NodeExecuteAndInit(data.Behaviors, context);
+            node.NodeExecuteAndInit(data.OrderedBehaviors, context);
             Profiler.EndSample();
 
 #if TTT_DISPLAY_RUNTIME_LOG
