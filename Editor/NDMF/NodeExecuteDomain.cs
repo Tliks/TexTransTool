@@ -183,10 +183,9 @@ namespace net.rs64.TexTransTool.NDMF
             Reads |= RenderAspects.Material | RenderAspects.Texture;
 
             var mutableMat = NDMFPreviewMaterialPool.Get(origin);
-            ReplaceMaterials(new() { { origin, mutableMat } });
-
-            RegisterReplacement(origin, mutableMat);
             SaveAsset(mutableMat);
+            RegisterReplacement(origin, mutableMat);
+            ReplaceMaterials(new() { { origin, mutableMat } });
 
             mutableMat.name = origin.name + "(TTT GetMutable on NDMF Preview for pooled)";
             material = mutableMat;
