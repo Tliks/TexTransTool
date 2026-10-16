@@ -28,6 +28,8 @@ namespace net.rs64.TexTransTool.NDMF
         private TexTransDomainFilter.NDMFGameObjectObservedWaker _NDMFObservedWaker;
         List<Renderer> _proxyDomainRenderers;
         Dictionary<Renderer, Renderer> _proxy2OriginRendererDict;
+        readonly HashSet<UnityEngine.Object> _proxyObjects = new();
+        readonly HashSet<UnityEngine.Object> _observedObjects = new();
 
         Dictionary<Renderer, Action<Renderer>> _rendererApplyRecaller = new();//origin 2 apply call
         private IObjectRegistry _objectRegistry;
@@ -36,13 +38,20 @@ namespace net.rs64.TexTransTool.NDMF
         public bool UsedTextureStack { get; private set; } = false;
         public bool UsedMaterialReplace { get; private set; } = false;
         public bool UsedSetMesh { get; private set; } = false;
-        public bool UsedLookAt { get; private set; } = false;
+        public RenderAspects Reads { get; private set; } = 0;
 
 
         public NodeExecuteDomain(Dictionary<Renderer, Renderer> o2pDict, ComputeContext computeContext, IObjectRegistry objectRegistry)
         {
             _proxy2OriginRendererDict = o2pDict.ToDictionary(i => i.Value, i => i.Key);
             _proxyDomainRenderers = o2pDict.Values.ToList();
+            foreach (var proxy in _proxyDomainRenderers)
+            {
+                _proxyObjects.Add(proxy);
+                _proxyObjects.Add(proxy.gameObject);
+                _proxyObjects.Add(proxy.transform);
+                if (proxy.TryGetComponent<MeshFilter>(out var meshFilter)) { _proxyObjects.Add(meshFilter); }
+            }
             _diskUtil = new UnityDiskUtil(true);
             _ttce4U = new TTCEUnityWithTTT4UnityOnNDMFPreview(_diskUtil);
             _textureStacks = new(_ttce4U);
@@ -53,38 +62,110 @@ namespace net.rs64.TexTransTool.NDMF
 
         public void Observe(UnityEngine.Object obj)
         {
-            if (obj is Renderer renderer && _proxy2OriginRendererDict.ContainsKey(renderer)) { return; }
-            _ctx?.Observe(obj);
-            UsedLookAt = true;
+            if (obj == null || IsTemporaryAsset(obj)) { return; }
+            if (obj is RenderTexture && _transferredRenderTextures.Any(rt => _ttce4U.GetReferenceRenderTexture(rt) == obj)) { return; }
+
+            // 任意の読み取りを伴うObserveでは、proxyのどの値を使うか特定できない。
+            if (_proxyObjects.Contains(obj))
+            {
+                Reads |= RenderAspects.Everything;
+                return;
+            }
+
+            var aspects = obj switch
+            {
+                Material _ => RenderAspects.Material | RenderAspects.Texture,
+                Texture _ => RenderAspects.Texture,
+                Mesh _ => RenderAspects.Mesh,
+                _ => (RenderAspects)0,
+            };
+            Reads |= aspects;
+
+            // 上流の複製そのものは購読せず、編集元の変更と上流の変更通知を別々に追う。
+            var original = _objectRegistry.GetReference(obj, false)?.Object;
+            if (original != null && original != obj)
+            {
+                if (aspects == 0) { Reads |= RenderAspects.Everything; }
+                obj = original;
+            }
+
+            if (_observedObjects.Add(obj)) { _ctx.Observe(obj); }
         }
         public TOut ObserveToGet<TObj, TOut>(TObj obj, Func<TObj, TOut> getAction, Func<TOut, TOut, bool>? comp = null)
                 where TObj : UnityEngine.Object
         {
-            // if (obj is Renderer renderer && _proxy2OriginRendererDict.ContainsKey(renderer)) { return getAction(obj); }
-            // if (comp is null) { return _ctx.Observe(obj, getAction); }
-            // else { return _ctx.Observe(obj, getAction, comp); }
-
-            /*
-            NDMF Preview の実行時にて observe してしまうと、非常に大量の object を observe してしまい
-            非常にパフォーマンスが悪化する上、その見ているプロパティそれ自体、 LookAt によって全体が一度に監視されているため、しないほうが良いということになってしまった。
-            */
+            // 値の抽出による監視には変更せず、Object単位の依存だけを登録する。
+            Observe(obj);
             return getAction(obj);
         }
         public void ObserveToGetComponent<LookTargetComponent>(GameObject gameObject) where LookTargetComponent : Component
         {
+            if (_proxyObjects.Contains(gameObject))
+            {
+                Reads |= RenderAspects.Everything;
+                return;
+            }
             _ctx.GetComponent<LookTargetComponent>(gameObject);
         }
         public void ObserveToChildeComponents<LookTargetComponent>(GameObject gameObject) where LookTargetComponent : Component
         {
+            if (_proxyObjects.Contains(gameObject))
+            {
+                Reads |= RenderAspects.Everything;
+                return;
+            }
             _ctx.GetComponentsInChildren<LookTargetComponent>(gameObject, true);
         }
 
         public void AddTextureStack(Texture dist, TexTransCore.ITTRenderTexture addTex, TexTransCore.ITTBlendKey blendKey)
         {
+            Observe(dist);
+            Reads |= RenderAspects.Texture;
             _textureStacks.AddTextureStack(dist, addTex, blendKey);
             UsedTextureStack = true;
         }
         public IEnumerable<Renderer> EnumerateRenderers() { return _proxyDomainRenderers; }
+        public Material?[] GetMaterials(Renderer renderer)
+        {
+            if (!_proxy2OriginRendererDict.ContainsKey(renderer)) { Observe(renderer); }
+            Reads |= RenderAspects.Material | RenderAspects.Texture;
+            var materials = renderer.sharedMaterials;
+            foreach (var material in materials) { Observe(material); }
+            return materials;
+        }
+        public Decal.MeshData GetMeshData(Renderer renderer)
+        {
+            Reads |= RenderAspects.Mesh | RenderAspects.Shapes;
+            _ = GetMesh(renderer);
+            return this.GetMeshDataDefault(renderer);
+        }
+        public Mesh? GetMesh(Renderer renderer)
+        {
+            if (!_proxy2OriginRendererDict.ContainsKey(renderer)) { Observe(renderer); }
+            Reads |= RenderAspects.Mesh;
+            var mesh = this.GetMeshDefault(renderer);
+            Observe(mesh);
+            return mesh;
+        }
+        public HashSet<Material> GetAllMaterials()
+        {
+            Reads |= RenderAspects.Material | RenderAspects.Texture;
+            return this.GetAllMaterialsDefault();
+        }
+        public HashSet<Texture> GetAllTextures()
+        {
+            var textures = this.GetAllTexturesDefault();
+            foreach (var texture in textures) { Observe(texture); }
+            return textures;
+        }
+        public HashSet<Texture> GetMaterialTextures(Material mat)
+        {
+            Observe(mat);
+            Reads |= RenderAspects.Material | RenderAspects.Texture;
+            var textures = this.GetMaterialTexturesDefault(mat);
+            foreach (var texture in textures) { Observe(texture); }
+            return textures;
+        }
 
         private void RegisterRecall(Renderer proxyRenderer, Action<Renderer> recall)
         {
@@ -98,6 +179,8 @@ namespace net.rs64.TexTransTool.NDMF
         {
             if (IsTemporaryAsset(material)) { return; }
             var origin = material;
+            Observe(origin);
+            Reads |= RenderAspects.Material | RenderAspects.Texture;
 
             var mutableMat = NDMFPreviewMaterialPool.Get(origin);
             ReplaceMaterials(new() { { origin, mutableMat } });
@@ -110,6 +193,7 @@ namespace net.rs64.TexTransTool.NDMF
         }
         public void ReplaceMaterials(Dictionary<Material, Material> mapping)
         {
+            Reads |= RenderAspects.Material;
             foreach (var dr in _proxyDomainRenderers)
             {
                 RegisterRecall(dr, i => RendererUtility.SwapMaterials(i, mapping));
@@ -159,15 +243,25 @@ namespace net.rs64.TexTransTool.NDMF
         public void SaveAsset(UnityEngine.Object asset) { _transferredObject.Add(asset); }
         public bool IsActive(GameObject gameObject)
         {
+            if (_proxyObjects.Contains(gameObject))
+            {
+                Reads |= RenderAspects.Everything;
+                return TexTransBehaviorSearch.CheckIsActive(gameObject);
+            }
             return TexTransBehaviorSearch.CheckIsActive(gameObject, _NDMFObservedWaker, null);
         }
         public bool IsEnable(Component component)
         {
+            if (_proxyObjects.Contains(component))
+            {
+                Reads |= RenderAspects.Everything;
+                return this.IsEnableDefault(component);
+            }
             return component switch
             {
                 Behaviour bh => _ctx.Observe(bh, b => b.enabled),
                 Renderer bh => _ctx.Observe(bh, b => b.enabled),
-                _ => true,
+                _ => this.IsEnableDefault(component),
             };
         }
 
@@ -207,6 +301,7 @@ namespace net.rs64.TexTransTool.NDMF
             }
             _transferredRenderTextures.Clear();
             _transferredObject.Clear();
+            _observedObjects.Clear();
             _textureStacks.Dispose();
 
             _ctx = null!;
