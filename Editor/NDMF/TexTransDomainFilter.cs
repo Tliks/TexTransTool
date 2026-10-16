@@ -216,29 +216,21 @@ namespace net.rs64.TexTransTool.NDMF
             return targetRendererGroup;
         }
 
-        public async Task<IRenderFilterNode> Instantiate(RenderGroup group, IEnumerable<(Renderer, Renderer)> proxyPairs, ComputeContext context)
+        public Task<IRenderFilterNode> Instantiate(RenderGroup group, IEnumerable<(Renderer, Renderer)> proxyPairs, ComputeContext context)
         {
             var data = group.GetData<PassingData>();
 
-            await Task.Delay(0);
-
-            var o2pDict = proxyPairs.ToDictionary(i => i.Item1, i => i.Item2);
-            var node = new TexTransPhaseNode();
-            node.TargetPhase = PreviewTargetPhase;
-            node.o2pDict = o2pDict;
 #if TTT_DISPLAY_RUNTIME_LOG
             var timer = System.Diagnostics.Stopwatch.StartNew();
 #endif
 
-            Profiler.BeginSample("node.NodeExecuteAndInit");
-            node.NodeExecuteAndInit(data.OrderedBehaviors, context);
-            Profiler.EndSample();
+            var node = TexTransPhaseNode.Create(data.OrderedBehaviors, proxyPairs, context, PreviewTargetPhase);
 
 #if TTT_DISPLAY_RUNTIME_LOG
             timer.Stop();
             Debug.Log($" time:{timer.ElapsedMilliseconds}ms - Instantiate: {string.Join("-", PreviewTargetPhase.ToString())}  \n  {string.Join("-", group.Renderers.Select(r => r.gameObject.name))} ");
 #endif
-            return node;
+            return Task.FromResult<IRenderFilterNode>(node);
         }
         public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
         {
